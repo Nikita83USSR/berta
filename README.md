@@ -1,86 +1,60 @@
-# BERTA 0.1 Alpha
+# BERTA 0.2
 
-Голосовой / текстовый AI-оркестратор и Action Agent на базе GigaChat.
+Локальный AI-оркестратор и Action Agent на базе GigaChat.
 
-Способна управлять локальной ОС, удалёнными серверами и внешними системами через единый механизм tool-use.
+Управляет ОС, серверами и внешними системами через tool-use.  
+Консоль + Web UI. Локальный женский голос (Piper / Irina).
 
 ## Запуск
 
-Главный файл:
-
 ```bash
+# рекомендуется venv (Debian 13+)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# голос (один раз)
+bash scripts/install_piper_voice.sh
+
 python berta_agent.py
 ```
 
-После старта:
+Web UI: **http://0.0.0.0:8742** (или IP хоста при пробросе порта)
 
-- Консоль — основной интерфейс
-- Web UI — http://127.0.0.1:8742
+## Возможности 0.2
 
-## Возможности
-
-- Общение через консоль и веб-интерфейс одновременно
-- Неблокирующее выполнение команд (Chrome и GUI не блокируют ввод)
-- Фоновые задачи (Task Manager)
-- Панели Web UI:
-  - Чат
-  - Мозг (запросы к GigaChat)
-  - Система / Tools
-  - Задачи
-  - Ошибки
-- Работа с клиентами (MariaDB)
-- Чтение/запись собственного кода
-- Системные команды с подтверждением опасных операций
+- Консоль и Web UI работают параллельно
+- Неблокирующие системные команды (Chrome/GUI → detached)
+- EventBus + TaskManager
+- Web UI: чат, мозг, система, задачи, ошибки
+- **TTS**: Piper + Irina (medium), озвучка только в браузере
+- Кнопка «ГОЛОС» во Web UI
 
 ## Структура
 
 ```
-berta/
-├── berta_agent.py          # главный исполняемый файл
-├── main.py                 # модульная альтернативная точка входа
-├── core/
-│   ├── event_bus.py        # единый поток событий
-│   ├── task_manager.py     # фоновые задачи
-│   ├── brain.py
-│   ├── memory.py
-│   └── personality.py
-├── interface/
-│   ├── terminal_ui.py
-│   └── web/
-│       ├── server.py       # HTTP + SSE (stdlib)
-│       └── static/         # Web UI (vanilla HTML/CSS/JS)
-├── tools/
-└── config/
+berta_agent.py              # главный файл
+core/
+  event_bus.py
+  task_manager.py
+  voice.py                  # Piper TTS
+interface/web/              # HTTP + SSE + UI
+scripts/install_piper_voice.sh
 ```
 
 ## Зависимости
 
-```bash
-pip install -r requirements.txt
-```
+- requests, python-dotenv, pymysql
+- piper-tts (для голоса)
 
-- requests
-- python-dotenv
-- pymysql
+Веб-сервер — stdlib (`http.server`).
 
-Веб-сервер — только стандартная библиотека Python (`http.server`).
+## Команды
 
-## Web UI
-
-- Дизайн: тёмно-зелёный киберпанк
-- ASCII-логотип при загрузке
-- Без React и внешних JS-библиотек
-- Живые логи через Server-Sent Events
-
-## Команды в консоли
-
-- `exit` / `quit` / `выход` — завершить работу
-- `clear` — очистить историю диалога
-
-## Безопасность
-
-Опасные системные команды требуют явного подтверждения (`Y/y`).
+- `exit` / `quit` / `выход` — выход
+- `clear` — очистить историю
 
 ---
 
+Версия: **0.2**  
 Разработчик: Никита Маркин

@@ -402,3 +402,32 @@ html, body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--green-dark);
 }
+
+.voice-btn {
+  margin-left: 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.voice-btn:hover {
+  border-color: var(--green-dark);
+  color: var(--green-dim);
+}
+
+.voice-btn.on {
+  color: var(--green);
+  border-color: var(--green-dark);
+  background: rgba(0, 255, 65, 0.08);
+  text-shadow: 0 0 6px rgba(0, 255, 65, 0.3);
+}
+
+.voice-btn.loading {
+  opacity: 0.6;
+}

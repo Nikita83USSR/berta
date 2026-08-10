@@ -17,10 +17,21 @@ from queue import Queue, Empty
 from core.event_bus import bus
 from core.task_manager import task_manager
 
+try:
+    from core.voice import synthesize, model_status
+except Exception:
+    synthesize = None
+    model_status = lambda: {"ready": False, "error": "voice module missing"}
+
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 8742
+
+# Кэш последних TTS-аудио: id → wav bytes
+_tts_cache: dict = {}
+_tts_cache_lock = threading.Lock()
+_tts_counter = 0
 
 
 class SSEClient:
@@ -101,6 +112,28 @@ class BertaHandler(SimpleHTTPRequestHandler):
             self._send_json({"tasks": tasks})
             return
 
+        # --- Статус TTS ---
+        if path == "/api/tts/status":
+            self._send_json(model_status())
+            return
+
+        # --- Отдать готовый WAV ---
+        if path.startswith("/api/tts/") and path.endswith(".wav"):
+            audio_id = path[len("/api/tts/"):-len(".wav")]
+            with _tts_cache_lock:
+                data = _tts_cache.get(audio_id)
+            if not data:
+                self._send_json({"error": "not found"}, 404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         # --- Статика ---
         if path == "/" or path == "":
             self.path = "/index.html"
@@ -141,6 +174,41 @@ class BertaHandler(SimpleHTTPRequestHandler):
             self._send_json({"ok": True})
             return
 
+        # --- TTS: синтез текста → URL на WAV ---
+        if path == "/api/speak":
+            text = (data.get("text") or "").strip()
+            if not text:
+                self._send_json({"error": "Empty text"}, 400)
+                return
+
+            if synthesize is None:
+                self._send_json({"error": "TTS module not available"}, 503)
+                return
+
+            wav = synthesize(text)
+            if not wav:
+                self._send_json({"error": "Synthesis failed", "status": model_status()}, 500)
+                return
+
+            global _tts_counter
+            with _tts_cache_lock:
+                _tts_counter += 1
+                audio_id = str(_tts_counter)
+                _tts_cache[audio_id] = wav
+                # не раздуваем кэш
+                if len(_tts_cache) > 30:
+                    oldest = sorted(_tts_cache.keys(), key=lambda x: int(x) if x.isdigit() else 0)
+                    for k in oldest[:10]:
+                        _tts_cache.pop(k, None)
+
+            self._send_json({
+                "ok": True,
+                "id": audio_id,
+                "url": f"/api/tts/{audio_id}.wav",
+                "bytes": len(wav)
+            })
+            return
+
         self._send_json({"error": "Not found"}, 404)
 
     def _handle_sse(self):
@@ -175,11 +243,16 @@ class BertaHandler(SimpleHTTPRequestHandler):
                     self.wfile.write(msg.encode("utf-8"))
                     self.wfile.flush()
                 except Empty:
-                    # keepalive
-                    self.wfile.write(b": ping\n\n")
-                    self.wfile.flush()
-                except (BrokenPipeError, ConnectionResetError):
+                    # keepalive ping
+                    try:
+                        self.wfile.write(b": ping\n\n")
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        break
+                except (BrokenPipeError, ConnectionResetError, OSError):
                     break
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
         finally:
             client.active = False
             bus.unsubscribe(on_event)

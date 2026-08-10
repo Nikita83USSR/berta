@@ -39,6 +39,7 @@
       <div class="header-status">
         <span id="conn-status" class="status-dot offline"></span>
         <span id="conn-text">OFFLINE</span>
+        <button id="voice-toggle" class="voice-btn" title="Озвучка ответов (Piper Irina)">🔊 ГОЛОС</button>
       </div>
       <nav id="tabs">
         <button class="tab active" data-panel="chat">ЧАТ</button>
@@ -48,6 +49,7 @@
         <button class="tab" data-panel="errors">ОШИБКИ</button>
       </nav>
     </header>
+    <audio id="tts-player" preload="none"></audio>
 
     <!-- CONTENT -->
     <main id="content">

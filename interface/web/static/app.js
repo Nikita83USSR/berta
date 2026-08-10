@@ -20,6 +20,51 @@
 
   let lastEventId = 0;
   let sse = null;
+  let voiceOn = localStorage.getItem("berta_voice") === "1";
+  const voiceBtn = document.getElementById("voice-toggle");
+  const ttsPlayer = document.getElementById("tts-player");
+  let ttsBusy = false;
+
+  function updateVoiceBtn() {
+    if (!voiceBtn) return;
+    voiceBtn.classList.toggle("on", voiceOn);
+    voiceBtn.textContent = voiceOn ? "🔊 ГОЛОС" : "🔇 ГОЛОС";
+  }
+  updateVoiceBtn();
+
+  if (voiceBtn) {
+    voiceBtn.addEventListener("click", () => {
+      voiceOn = !voiceOn;
+      localStorage.setItem("berta_voice", voiceOn ? "1" : "0");
+      updateVoiceBtn();
+      if (!voiceOn && ttsPlayer) {
+        ttsPlayer.pause();
+      }
+    });
+  }
+
+  async function speakText(text) {
+    if (!voiceOn || !text || ttsBusy) return;
+    ttsBusy = true;
+    if (voiceBtn) voiceBtn.classList.add("loading");
+    try {
+      const res = await fetch("/api/speak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) throw new Error(data.error || "TTS failed");
+      ttsPlayer.src = data.url;
+      await ttsPlayer.play();
+    } catch (e) {
+      console.warn("TTS:", e);
+    } finally {
+      ttsBusy = false;
+      if (voiceBtn) voiceBtn.classList.remove("loading");
+    }
+  }
+
 
   // ---------- BOOT ----------
   function finishBoot() {
@@ -119,9 +164,12 @@
     switch (event.type) {
       case "chat":
         if (event.data.role === "user") {
-          // уже показали локально, но на всякий случай
+          // уже показали локально
         } else if (event.data.role === "assistant") {
-          appendChat("assistant", event.data.content || "");
+          const content = event.data.content || "";
+          appendChat("assistant", content);
+          // озвучка только в Web UI
+          if (voiceOn && content) speakText(content);
         }
         break;
 

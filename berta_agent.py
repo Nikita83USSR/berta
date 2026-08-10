@@ -944,8 +944,8 @@ def main():
 
     # --- Web UI ---
     try:
-        start_web_server(host="127.0.0.1", port=8742)
-        ui_status("WEB", "http://127.0.0.1:8742")
+        start_web_server(host="0.0.0.0", port=8742)
+        ui_status("WEB", "http://0.0.0.0:8742")
     except Exception as e:
         ui_status("WEB", f"ERROR · {e}")
 
