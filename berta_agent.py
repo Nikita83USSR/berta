@@ -10,6 +10,14 @@ import logging
 import hashlib
 import subprocess
 import shlex
+import threading
+import queue
+import sys
+
+# Новые модули: EventBus, TaskManager, Web UI
+from core.event_bus import bus
+from core.task_manager import task_manager
+from interface.web.server import start_web_server, get_incoming_message
 
 # ============================================================
 # НАСТРОЙКИ
@@ -581,13 +589,36 @@ FUNCTIONS = [
     },
     {
         "name": "execute_system_command",
-        "description": "Выполняет системную команду. Опасные операции требуют подтверждения.",
+        "description": (
+            "Выполняет системную команду. "
+            "Для GUI-программ (Chrome, Firefox и т.д.) и долгих процессов "
+            "автоматически запускает в фоне (detached), чтобы не блокировать BERTA. "
+            "Опасные операции требуют подтверждения."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Системная команда"}
+                "command": {"type": "string", "description": "Системная команда"},
+                "background": {
+                    "type": "string",
+                    "description": (
+                        "Режим: 'detached' — запустить и отпустить (Chrome/GUI), "
+                        "'wait' — в фоне с ожиданием результата, "
+                        "не указывать — авто-определение или синхронно"
+                    )
+                }
             },
             "required": ["command"]
+        }
+    },
+    {
+        "name": "list_tasks",
+        "description": "Показывает список фоновых задач BERTA.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "only_active": {"type": "boolean", "description": "Только активные задачи"}
+            }
         }
     }
 ]
@@ -620,66 +651,110 @@ def execute_function(name, arguments):
                 "time": time.strftime("%Y-%m-%d %H:%M:%S")
             }
 
-        # --- ИНСТРУМЕНТ: Выполнение системных команд ---
+        # --- ИНСТРУМЕНТ: Выполнение системных команд (фон / detached) ---
         if name == "execute_system_command":
-            command = arguments.get("command")
+            command = (arguments.get("command") or "").strip()
+            if not command:
+                return {"success": False, "error": "Пустая команда"}
+
             dangerous_patterns = [
                 'rm -rf', 'dd if=', '> /dev/', 'mkfs.', 'fdisk', 'parted',
-                'shutdown', 'reboot', 'init 0', 'poweroff'
+                'shutdown', 'reboot', 'init 0', 'poweroff', 'mkfs', ':(){', 'fork'
             ]
             cmd_lower = command.lower()
             is_dangerous = any(pattern in cmd_lower for pattern in dangerous_patterns)
 
             if is_dangerous:
-                ui_print(f"[BERTA] ВНИМАНИЕ: Опасная операция!", bright=True)
+                ui_print(f"[BERTA] ВНИМАНИЕ: Опасная операция!", bright=True, color="red")
                 ui_print(f"ДЕЙСТВИЕ: {command}")
+                bus.emit("system", {"message": f"Опасная команда: {command}"}, source="berta_agent")
                 confirm = input("Подтвердите выполнение (Y/y для согласия): ").strip().lower()
                 if confirm != 'y':
                     return {"success": False, "error": "Отказано в доступе."}
 
-                        # --- НОВЫЙ ИСПРАВЛЕННЫЙ БЛОК ЗАПУСКА ---
-            args = shlex.split(command)
-            
+            DETACHED_PATTERNS = [
+                "chrome", "chromium", "google-chrome", "firefox", "opera", "brave",
+                "code", "cursor", "sublime", "gedit", "nautilus", "dolphin",
+                "xterm", "gnome-terminal", "konsole", "vlc", "mpv",
+                "telegram", "discord", "slack"
+            ]
+            background = arguments.get("background")
+            if background is None and any(p in cmd_lower for p in DETACHED_PATTERNS):
+                background = "detached"
+
+            bus.emit("tool", {"name": name, "command": command, "background": background}, source="berta_agent")
+
+            if background == "detached" or background is True:
+                task = task_manager.start_detached_process(
+                    name=f"cmd:{command[:40]}",
+                    command=command,
+                    description=command,
+                    shell=True
+                )
+                ui_print(f"[BERTA] Запущено в фоне (detached) → task {task.id}", color="green")
+                return {
+                    "success": True,
+                    "background": True,
+                    "detached": True,
+                    "task_id": task.id,
+                    "message": f"Команда запущена в фоне. Task ID: {task.id}"
+                }
+
+            if background == "wait":
+                task = task_manager.start_process(
+                    name=f"cmd:{command[:40]}",
+                    command=command,
+                    description=command,
+                    shell=True
+                )
+                ui_print(f"[BERTA] Запущено в фоне (ожидание) → task {task.id}", color="green")
+                return {
+                    "success": True,
+                    "background": True,
+                    "detached": False,
+                    "task_id": task.id,
+                    "message": f"Команда выполняется в фоне. Task ID: {task.id}"
+                }
+
+            # Синхронный режим
             try:
+                args = shlex.split(command)
                 result = subprocess.run(
-                    args, 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.DEVNULL, # Скрываем "Permission denied"
-                    text=True, 
+                    args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
                     timeout=60
                 )
             except FileNotFoundError:
                 ui_print("[BERTA] ОШИБКА: Команда не найдена", bright=True, color="red")
-                return {"success": False, "error": f"Команда {args[0]} не существует."}
+                return {"success": False, "error": f"Команда не существует: {command.split()[0]}"}
+            except subprocess.TimeoutExpired:
+                return {"success": False, "error": "Таймаут 60 секунд"}
 
-            # Если команда реально сломалась (например, опечатка), спросим совет
             if result.returncode != 0:
                 error_msg = f"Ошибка выполнения (код: {result.returncode})"
-                
                 ui_print("[BERTA] ОШИБКА В КОНСОЛИ:", bright=True, color="red")
                 print(f"Код возврата: {result.returncode}")
-                
-                fix_prompt = f"""Я выполнила команду: "{command}". 
-Она завершилась ошибкой. Это может быть из-за синтаксиса или прав доступа."""
-                
-                advice_messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": fix_prompt}]
-                advice = ask_berta(advice_messages)
-                
-                ui_print("[BERTA] АНАЛИЗ ОШИБКИ:", bright=True, color="red")
-                ui_print(advice)
-                
+                if result.stderr:
+                    print(result.stderr.strip()[:500])
                 return {
-                    "success": False, 
+                    "success": False,
                     "error": error_msg,
-                    "suggested_fix": advice
+                    "stderr": result.stderr.strip()
                 }
 
-            # Если всё ок (или find ничего не нашел - что тоже дает пустой результат без ошибки программы)
             return {
-                "success": True, 
+                "success": True,
                 "stdout": result.stdout.strip(),
-                "stderr": "" 
+                "stderr": result.stderr.strip()
             }
+
+        if name == "list_tasks":
+            only_active = arguments.get("only_active", False)
+            tasks = task_manager.list_tasks(only_active=only_active)
+            return {"success": True, "tasks": tasks, "count": len(tasks)}
+
         elif name == "read_file":
             filename = arguments.get("filename")
             try:
@@ -836,6 +911,7 @@ def main():
     print()
     show_boot_screen()
     print()
+
     try:
         memory = read_self_changes(10)
         if memory.get("success"):
@@ -844,12 +920,14 @@ def main():
             ui_status("MEMORY", "НЕДОСТУПНА · РАБОТА БЕЗ ПАМЯТИ")
     except Exception:
         ui_status("MEMORY", "НЕДОСТУПНА · РАБОТА БЕЗ ПАМЯТИ")
+
     try:
         db = get_db()
         db.close()
         ui_status("DATABASE", "MARIADB · OK")
     except Exception:
         ui_status("DATABASE", "MARIADB · ERROR")
+
     try:
         get_giga_token()
         ui_status("LINK", "ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ · OK")
@@ -861,37 +939,77 @@ def main():
         print(str(e))
         print()
         return
+
     ui_status("CORE", "САМОПРОВЕРКА · OK")
+
+    # --- Web UI ---
+    try:
+        start_web_server(host="127.0.0.1", port=8742)
+        ui_status("WEB", "http://127.0.0.1:8742")
+    except Exception as e:
+        ui_status("WEB", f"ERROR · {e}")
+
     print()
     ui_print("────────────────────────────────────────────────────────────")
     ui_print("БЕРТА 0 готова.", bright=True)
     ui_print("Системы функционируют штатно.")
-    ui_print("Память собственного развития подключена.")
-    ui_print("Команды: exit — завершить работу · clear — очистить историю")
+    ui_print("Консоль + Web UI активны.")
+    ui_print("Команды: exit — завершить · clear — очистить историю")
     print()
+
     messages = [{"role": "system", "content": SYSTEM_PROMPT + build_memory_context()}]
-    while True:
-        try:
-            user_text = input(GREEN + BOLD + "ВЫ: " + RESET).strip()
-        except (KeyboardInterrupt, EOFError):
-            print()
-            ui_print("БЕРТА завершает работу.")
-            break
+    console_queue = queue.Queue()
+
+    def console_input_loop():
+        while True:
+            try:
+                line = input()
+                console_queue.put(line)
+            except (EOFError, KeyboardInterrupt):
+                console_queue.put("__EXIT__")
+                break
+            except Exception:
+                break
+
+    t = threading.Thread(target=console_input_loop, daemon=True, name="console-input")
+    t.start()
+
+    print(GREEN + BOLD + "ВЫ: " + RESET, end="", flush=True)
+
+    def handle_user_text(user_text, source="console"):
+        nonlocal messages
+        user_text = (user_text or "").strip()
         if not user_text:
-            continue
+            return
+
         if user_text.lower() == "exit":
             ui_print("БЕРТА завершает работу.")
-            break
+            sys.exit(0)
+
         if user_text.lower() == "clear":
             messages = [{"role": "system", "content": SYSTEM_PROMPT + build_memory_context()}]
             ui_print("История текущего диалога очищена.")
-            continue
+            return
+
+        bus.emit("chat", {"role": "user", "content": user_text, "source": source}, source=source)
+
         messages.append({"role": "user", "content": user_text})
         limit_history(messages)
+
         try:
+            bus.emit("status", {"state": "thinking"}, source="brain")
             answer = ask_berta(messages)
             messages.append({"role": "assistant", "content": answer})
-            logging.info(json.dumps({"timestamp": time.time(), "session_id": str(uuid.uuid4()), "messages": messages}, ensure_ascii=False))
+
+            bus.emit("chat", {"role": "assistant", "content": answer, "source": "berta"}, source="brain")
+            bus.emit("brain", {"direction": "response", "content_preview": (answer or "")[:300]}, source="brain")
+
+            logging.info(json.dumps({
+                "timestamp": time.time(),
+                "session_id": str(uuid.uuid4()),
+                "messages": messages
+            }, ensure_ascii=False))
+
             print()
             ui_print("БЕРТА:", bright=True)
             ui_print(answer)
@@ -901,8 +1019,40 @@ def main():
             print("[ОШИБКА БЕРТА]")
             print(str(e))
             print()
+            bus.emit("error", {"message": str(e)}, source="berta_agent")
             if messages and messages[-1].get("role") == "user":
                 messages.pop()
+
+    while True:
+        try:
+            # консоль
+            try:
+                user_text = console_queue.get(timeout=0.12)
+                if user_text == "__EXIT__":
+                    ui_print("БЕРТА завершает работу.")
+                    break
+                print(f"{user_text}")  # эхо уже введённой строки
+                handle_user_text(user_text, source="console")
+                print(GREEN + BOLD + "ВЫ: " + RESET, end="", flush=True)
+            except queue.Empty:
+                pass
+
+            # веб
+            web_msg = get_incoming_message(timeout=0.05)
+            if web_msg:
+                text = web_msg.get("text", "")
+                ui_print(f"[WEB] → {text}", color="blue")
+                handle_user_text(text, source="web")
+                print(GREEN + BOLD + "ВЫ: " + RESET, end="", flush=True)
+
+        except KeyboardInterrupt:
+            print()
+            ui_print("БЕРТА завершает работу.")
+            break
+        except Exception as e:
+            ui_print("ОШИБКА цикла: " + str(e), bright=True, color="red")
+            bus.emit("error", {"message": str(e)}, source="berta_agent")
+
 
 if __name__ == "__main__":
     main()

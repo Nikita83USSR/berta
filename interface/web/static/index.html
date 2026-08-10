@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BERTA — Autonomous Local Intelligence</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <!-- BOOT SCREEN -->
+  <div id="boot-screen">
+    <pre id="ascii-logo">
+██████  ███████ ██████  ████████  █████
+██   ██ ██      ██   ██    ██    ██   ██
+██████  █████   ██████     ██    ███████
+██   ██ ██      ██   ██    ██    ██   ██
+██████  ███████ ██   ██    ██    ██   ██
+
+        AUTONOMOUS LOCAL INTELLIGENCE
+    </pre>
+    <div class="boot-status">
+      <div class="boot-line">[ CORE     ] INITIALIZING</div>
+      <div class="boot-line">[ BRAIN    ] CONNECTING</div>
+      <div class="boot-line">[ MEMORY   ] LOADING</div>
+      <div class="boot-line">[ WEB      ] ONLINE</div>
+    </div>
+    <div class="boot-progress">
+      <div class="boot-bar"></div>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  <div id="app" class="hidden">
+
+    <!-- HEADER -->
+    <header id="header">
+      <div class="logo-mini">BERTA 0.1</div>
+      <div class="header-status">
+        <span id="conn-status" class="status-dot offline"></span>
+        <span id="conn-text">OFFLINE</span>
+      </div>
+      <nav id="tabs">
+        <button class="tab active" data-panel="chat">ЧАТ</button>
+        <button class="tab" data-panel="brain">МОЗГ</button>
+        <button class="tab" data-panel="system">СИСТЕМА</button>
+        <button class="tab" data-panel="tasks">ЗАДАЧИ</button>
+        <button class="tab" data-panel="errors">ОШИБКИ</button>
+      </nav>
+    </header>
+
+    <!-- CONTENT -->
+    <main id="content">
+
+      <!-- CHAT PANEL -->
+      <section id="panel-chat" class="panel active">
+        <div id="chat-messages"></div>
+        <div id="chat-input-area">
+          <textarea id="chat-input" placeholder="Введите сообщение..." rows="1"></textarea>
+          <button id="send-btn">ОТПРАВИТЬ</button>
+        </div>
+      </section>
+
+      <!-- BRAIN PANEL -->
+      <section id="panel-brain" class="panel">
+        <div class="panel-header">GigaChat · Запросы и ответы</div>
+        <div id="brain-log" class="log-view"></div>
+      </section>
+
+      <!-- SYSTEM PANEL -->
+      <section id="panel-system" class="panel">
+        <div class="panel-header">Система · Tools · Console</div>
+        <div id="system-log" class="log-view"></div>
+      </section>
+
+      <!-- TASKS PANEL -->
+      <section id="panel-tasks" class="panel">
+        <div class="panel-header">
+          Фоновые задачи
+          <button id="refresh-tasks" class="small-btn">ОБНОВИТЬ</button>
+        </div>
+        <div id="tasks-list"></div>
+      </section>
+
+      <!-- ERRORS PANEL -->
+      <section id="panel-errors" class="panel">
+        <div class="panel-header">Ошибки</div>
+        <div id="errors-log" class="log-view"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

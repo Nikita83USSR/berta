@@ -1,3 +1,8 @@
+# tools/functions.py
+"""
+Список инструментов, которые GigaChat может вызывать.
+"""
+
 FUNCTIONS = [
 
     {
@@ -11,12 +16,9 @@ FUNCTIONS = [
                     "description": "ID клиента"
                 }
             },
-            "required": [
-                "client_id"
-            ]
+            "required": ["client_id"]
         }
     },
-
 
     {
         "name": "delete_client_by_name",
@@ -29,22 +31,18 @@ FUNCTIONS = [
                     "description": "Точное имя клиента"
                 }
             },
-            "required": [
-                "name"
-            ]
+            "required": ["name"]
         }
     },
 
-
     {
         "name": "read_self_code",
-        "description": "Читает текущий исходный код BERTA.",
+        "description": "Читает текущий исходный код BERTA (main.py).",
         "parameters": {
             "type": "object",
             "properties": {}
         }
     },
-
 
     {
         "name": "write_self_code",
@@ -57,12 +55,9 @@ FUNCTIONS = [
                     "description": "Полный новый исходный код"
                 }
             },
-            "required": [
-                "code"
-            ]
+            "required": ["code"]
         }
     },
-
 
     {
         "name": "read_file",
@@ -75,27 +70,50 @@ FUNCTIONS = [
                     "description": "Путь к файлу"
                 }
             },
-            "required": [
-                "filename"
-            ]
+            "required": ["filename"]
         }
     },
 
-
     {
         "name": "execute_system_command",
-        "description": "Выполняет системную команду. Опасные операции требуют подтверждения.",
+        "description": (
+            "Выполняет системную команду. "
+            "Для GUI-программ (Chrome, Firefox и т.д.) и долгих процессов "
+            "автоматически запускает в фоне (detached), чтобы не блокировать BERTA. "
+            "Опасные операции требуют подтверждения."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
                     "description": "Системная команда"
+                },
+                "background": {
+                    "type": "string",
+                    "description": (
+                        "Режим запуска: "
+                        "'detached' — запустить и отпустить (для Chrome и GUI), "
+                        "'wait' — выполнить в фоне и дождаться результата, "
+                        "null/не указывать — авто-определение или синхронно"
+                    )
                 }
             },
-            "required": [
-                "command"
-            ]
+            "required": ["command"]
+        }
+    },
+
+    {
+        "name": "list_tasks",
+        "description": "Показывает список фоновых задач BERTA (активные и завершённые).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "only_active": {
+                    "type": "boolean",
+                    "description": "Если true — показать только активные задачи"
+                }
+            }
         }
     }
 
