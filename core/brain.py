@@ -51,6 +51,15 @@ class BertaBrain:
         return self.token
 
     def ask(self, messages, functions=None):
+        import time
+        from tools.monitoring import (
+            record_ai_request_start,
+            record_ai_request_success,
+            record_ai_request_error,
+        )
+
+        record_ai_request_start()
+        t0 = time.time()
         token = self.get_token()
         payload = {"model": MODEL, "messages": messages}
         if functions:
@@ -63,18 +72,7 @@ class BertaBrain:
             "Authorization": "Bearer " + token,
         }
 
-        response = requests.post(
-            GIGACHAT_API + "/chat/completions",
-            headers=headers,
-            json=payload,
-            verify=False,
-            timeout=HTTP_TIMEOUT,
-        )
-
-        if response.status_code == 401:
-            self.token = None
-            token = self.get_token()
-            headers["Authorization"] = "Bearer " + token
+        try:
             response = requests.post(
                 GIGACHAT_API + "/chat/completions",
                 headers=headers,
@@ -83,9 +81,34 @@ class BertaBrain:
                 timeout=HTTP_TIMEOUT,
             )
 
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"Ошибка GigaChat: HTTP {response.status_code}: {response.text[:1500]}"
-            )
+            if response.status_code == 401:
+                self.token = None
+                token = self.get_token()
+                headers["Authorization"] = "Bearer " + token
+                response = requests.post(
+                    GIGACHAT_API + "/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    verify=False,
+                    timeout=HTTP_TIMEOUT,
+                )
 
-        return response.json()
+            if response.status_code != 200:
+                record_ai_request_error(
+                    error=response.text[:500],
+                    http_status=response.status_code,
+                )
+                raise RuntimeError(
+                    f"Ошибка GigaChat: HTTP {response.status_code}: {response.text[:1500]}"
+                )
+
+            data = response.json()
+            elapsed = time.time() - t0
+            usage = data.get("usage") or {}
+            record_ai_request_success(elapsed=elapsed, usage=usage)
+            return data
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            record_ai_request_error(error=str(exc)[:500])
+            raise

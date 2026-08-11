@@ -2,6 +2,7 @@
 """Лёгкий веб-сервер BERTA: статика, чат, SSE, задачи и TTS."""
 
 import json
+import re
 import os
 import threading
 import time
@@ -10,6 +11,25 @@ from queue import Empty, Queue
 from urllib.parse import parse_qs, urlparse
 
 from core.event_bus import bus
+
+def _sanitize_for_tts(text: str) -> str:
+    """Убрать markdown и служебные хвосты перед Piper."""
+    t = text or ""
+    t = re.sub(r"```[\s\S]*?```", " ", t)
+    t = re.sub(r"`([^`]+)`", r"\1", t)
+    t = re.sub(r"^#{1,6}\s*", "", t, flags=re.M)
+    t = re.sub(r"\*\*([^*]+)\*\*", r"\1", t)
+    t = re.sub(r"__([^_]+)__", r"\1", t)
+    t = re.sub(r"\*([^*]+)\*", r"\1", t)
+    t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
+    t = re.sub(r"\[sources?\s*=\s*\[[^\]]*\]\]", "", t, flags=re.I)
+    t = re.sub(r"\bsources?\s*=\s*\[[^\]]*\]", "", t, flags=re.I)
+    t = re.sub(r"https?://\S+", " ", t)
+    t = re.sub(r"[#*_~|>]+", " ", t)
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    return t
+
+
 from core.task_manager import task_manager
 
 try:
@@ -88,6 +108,36 @@ class BertaHandler(SimpleHTTPRequestHandler):
         if path == "/api/tts/status":
             self._send_json(model_status())
             return
+        if path == "/api/monitoring":
+            try:
+                from tools.monitoring import ai_request_counter, event_stats
+                from tools.audio import tts_status
+                from tools.system_safe import system_info
+
+                ai = ai_request_counter().get("data") or {}
+                stats = event_stats().get("data") or {}
+                tts = tts_status().get("data") or {}
+                sysinfo = system_info().get("data") or {}
+                self._send_json(
+                    {
+                        "ai": ai,
+                        "events": stats,
+                        "tts": {
+                            "ready": tts.get("ready"),
+                            "model": tts.get("model"),
+                            "piper": tts.get("piper"),
+                        },
+                        "system": {
+                            "os": sysinfo.get("os"),
+                            "hostname": sysinfo.get("hostname"),
+                            "python": sysinfo.get("python"),
+                            "berta_version": sysinfo.get("berta_version"),
+                        },
+                    }
+                )
+            except Exception as e:
+                self._send_json({"error": str(e)[:300]}, 500)
+            return
         if path.startswith("/api/tts/") and path.endswith(".wav"):
             audio_id = path[len("/api/tts/"):-4]
             with _tts_cache_lock:
@@ -110,7 +160,45 @@ class BertaHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        length = int(self.headers.get("Content-Length", 0))
+        length = int(self.headers.get("Content-Length", 0) or 0)
+
+        # Голосовой STT: multipart/binary — не JSON
+        if path == "/api/voice/transcribe":
+            try:
+                content_type = self.headers.get("Content-Type", "")
+                if length <= 0:
+                    self._send_json({"error": "EMPTY_AUDIO", "message": "Пустое аудио"}, 400)
+                    return
+                if length > 15 * 1024 * 1024:
+                    self._send_json({"error": "AUDIO_TOO_LARGE", "message": "Аудио больше 15 МБ"}, 413)
+                    return
+                # читаем тело, не сохраняем на диск
+                _body = self.rfile.read(length)
+                bus.emit(
+                    "system",
+                    {
+                        "message": "voice_transcribe_request",
+                        "bytes": length,
+                        "content_type": (content_type or "")[:80],
+                    },
+                    source="web",
+                )
+                self._send_json(
+                    {
+                        "error": "SERVER_STT_NOT_CONFIGURED",
+                        "message": (
+                            "Серверный STT не настроен. Используйте локальное "
+                            "распознавание браузера (Chrome) или подключите STT-провайдер."
+                        ),
+                        "text": "",
+                        "language": "ru-RU",
+                    },
+                    501,
+                )
+            except Exception as e:
+                self._send_json({"error": "SERVER_STT_ERROR", "message": str(e)[:200]}, 500)
+            return
+
         body = self.rfile.read(length) if length else b"{}"
         try:
             data = json.loads(body.decode("utf-8"))
@@ -136,6 +224,10 @@ class BertaHandler(SimpleHTTPRequestHandler):
             if synthesize is None:
                 self._send_json({"error": "TTS module not available"}, 503)
                 return
+            text = _sanitize_for_tts(text)
+            if not text:
+                self._send_json({"error": "Empty text after sanitize"}, 400)
+                return
             wav = synthesize(text)
             if not wav:
                 self._send_json({"error": "Synthesis failed", "status": model_status()}, 500)
@@ -151,6 +243,8 @@ class BertaHandler(SimpleHTTPRequestHandler):
                         _tts_cache.pop(key, None)
             self._send_json({"ok": True, "id": audio_id, "url": f"/api/tts/{audio_id}.wav"})
             return
+
+
 
         self._send_json({"error": "Not found"}, 404)
 

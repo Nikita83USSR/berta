@@ -323,10 +323,232 @@ def execute_function(name: str, arguments: dict | None = None):
         elif name == "list_tasks":
             tasks = task_manager.list_tasks(only_active=bool(arguments.get("only_active", False))); result = {"success": True, "tasks": tasks, "count": len(tasks)}
         else:
-            result = {"success": False, "error": f"Неизвестная функция: {name}"}
+            result = _dispatch_extended(name, arguments)
 
         _emit_done(name, result); return result
     except Exception as exc:
-        result = {"success": False, "error": str(exc)}
+        result = {"success": False, "error": str(exc), "ok": False, "data": None,
+                  "error_detail": {"type": "Exception", "message": str(exc)}}
         bus.emit("error", {"tool": name, "error": str(exc)}, source="function_manager")
         return result
+
+
+# --- Extended tools (web/http/files/git/network/audio/monitoring/system_safe) ---
+
+CONFIRM_TOOLS = {
+    "http_request",  # when method is not GET/HEAD
+    "file_write",
+    "file_append",
+    "git_add",
+    "git_commit",
+    "git_pull",
+    "git_push",
+}
+
+
+def _dispatch_extended(name: str, arguments: dict):
+    """Route new tools; return dict with success/ok fields."""
+    from tools import web as web_mod
+    from tools import http as http_mod
+    from tools import filesystem as fs_mod
+    from tools import git_tools as git_mod
+    from tools import network as net_mod
+    from tools import audio as audio_mod
+    from tools import monitoring as mon_mod
+    from tools import system_safe as sys_mod
+
+    args = arguments or {}
+
+    # --- web ---
+    if name == "weather":
+        return web_mod.weather(city=args.get("city"), query=args.get("query"))
+    if name == "web_search":
+        return web_mod.web_search(
+            args.get("query", ""),
+            limit=args.get("limit", 5),
+            language=args.get("language"),
+        )
+    if name == "web_open":
+        return web_mod.web_open(
+            args.get("url", ""),
+            timeout=args.get("timeout", 20),
+            max_length=args.get("max_length", 20000),
+        )
+    if name == "web_fetch":
+        return web_mod.web_fetch(
+            args.get("url", ""),
+            method=args.get("method", "GET"),
+            timeout=args.get("timeout", 20),
+        )
+    if name == "web_download":
+        return web_mod.web_download(
+            args.get("url", ""),
+            dest_name=args.get("dest_name"),
+            timeout=args.get("timeout", 60),
+        )
+
+    # --- http ---
+    if name == "http_request":
+        method = (args.get("method") or "GET").upper()
+        if method not in {"GET", "HEAD"}:
+            if not _confirm(f"Выполнить HTTP {method} к {args.get('url', '')[:80]}?"):
+                return {"ok": False, "success": False, "data": None,
+                        "error": {"type": "ConfirmRequired", "message": "Отменено пользователем"},
+                        "error_message": "Отменено пользователем"}
+        return http_mod.http_request(
+            url=args.get("url", ""),
+            method=method,
+            headers=args.get("headers"),
+            params=args.get("params"),
+            json_body=args.get("json"),
+            body=args.get("body"),
+            timeout=args.get("timeout", 30),
+        )
+    if name == "api_request":
+        return http_mod.api_request(
+            api_name=args.get("api_name", ""),
+            params=args.get("params"),
+            json_body=args.get("json"),
+            timeout=args.get("timeout", 30),
+        )
+
+    # --- system ---
+    if name == "system_command":
+        cmd = (args.get("command") or "").strip()
+        from tools.system_safe import _is_safe, _is_forbidden
+        if _is_forbidden(cmd):
+            return {"ok": False, "success": False, "data": None,
+                    "error": {"type": "Forbidden", "message": "Команда запрещена"},
+                    "error_message": "Команда запрещена"}
+        confirm = False
+        if not _is_safe(cmd):
+            if not _confirm(f"Выполнить нестандартную команду: {cmd[:100]}?"):
+                return {"ok": False, "success": False, "data": None,
+                        "error": {"type": "ConfirmRequired", "message": "Отменено"},
+                        "error_message": "Отменено"}
+            confirm = True
+        return sys_mod.system_command(
+            command=cmd,
+            timeout=args.get("timeout", 15),
+            cwd=args.get("cwd"),
+            confirm=confirm,
+        )
+    if name == "system_info":
+        return sys_mod.system_info()
+
+    # --- filesystem ---
+    if name == "file_list":
+        return fs_mod.file_list(
+            path=args.get("path", "."),
+            include_hidden=bool(args.get("include_hidden", False)),
+            max_items=args.get("max_items", 300),
+        )
+    if name == "file_read":
+        return fs_mod.file_read(path=args.get("path") or args.get("filename", ""), max_length=args.get("max_length", 512000))
+    if name == "file_write":
+        if not _confirm(f"Записать файл {args.get('path', '')}?"):
+            return {"ok": False, "success": False, "data": None,
+                    "error": {"type": "ConfirmRequired", "message": "Отменено"},
+                    "error_message": "Отменено"}
+        return fs_mod.file_write(path=args.get("path", ""), content=args.get("content", ""), confirm=True)
+    if name == "file_append":
+        if not _confirm(f"Дописать в файл {args.get('path', '')}?"):
+            return {"ok": False, "success": False, "data": None,
+                    "error": {"type": "ConfirmRequired", "message": "Отменено"},
+                    "error_message": "Отменено"}
+        return fs_mod.file_append(path=args.get("path", ""), content=args.get("content", ""), confirm=True)
+    if name == "file_exists":
+        return fs_mod.file_exists(path=args.get("path", ""))
+    if name == "file_info":
+        return fs_mod.file_info(path=args.get("path", ""))
+    if name == "file_search":
+        return fs_mod.file_search(
+            query=args.get("query", ""),
+            path=args.get("path", "."),
+            kind=args.get("kind", "any"),
+            max_results=args.get("max_results", 50),
+        )
+
+    # --- git ---
+    if name == "git_status":
+        return git_mod.git_status(path=args.get("path"))
+    if name == "git_log":
+        return git_mod.git_log(limit=args.get("limit", 10), path=args.get("path"))
+    if name == "git_branch":
+        return git_mod.git_branch(path=args.get("path"))
+    if name == "git_diff":
+        return git_mod.git_diff(path=args.get("path"), staged=bool(args.get("staged", False)))
+    if name == "git_show":
+        return git_mod.git_show(ref=args.get("ref", "HEAD"), path=args.get("path"))
+    if name == "git_add":
+        if not _confirm("Выполнить git add?"):
+            return {"ok": False, "success": False, "data": None,
+                    "error": {"type": "ConfirmRequired", "message": "Отменено"},
+                    "error_message": "Отменено"}
+        return git_mod.git_add(paths=args.get("paths"), confirm=True)
+    if name == "git_commit":
+        if not _confirm(f"Выполнить git commit: {args.get('message', '')[:60]}?"):
+            return {"ok": False, "success": False, "data": None,
+                    "error": {"type": "ConfirmRequired", "message": "Отменено"},
+                    "error_message": "Отменено"}
+        return git_mod.git_commit(message=args.get("message", ""), confirm=True)
+    if name == "git_pull":
+        if not _confirm("Выполнить git pull?"):
+            return {"ok": False, "success": False, "data": None,
+                    "error": {"type": "ConfirmRequired", "message": "Отменено"},
+                    "error_message": "Отменено"}
+        return git_mod.git_pull(confirm=True)
+    if name == "git_push":
+        if not _confirm("Выполнить git push?"):
+            return {"ok": False, "success": False, "data": None,
+                    "error": {"type": "ConfirmRequired", "message": "Отменено"},
+                    "error_message": "Отменено"}
+        return git_mod.git_push(confirm=True)
+
+    # --- network ---
+    if name == "curl_request":
+        return net_mod.curl_request(
+            url=args.get("url", ""),
+            method=args.get("method", "GET"),
+            timeout=args.get("timeout", 10),
+            headers=args.get("headers"),
+        )
+    if name == "dns_lookup":
+        return net_mod.dns_lookup(host=args.get("host", ""))
+    if name == "ping_host":
+        return net_mod.ping_host(
+            host=args.get("host", ""),
+            count=args.get("count", 3),
+            timeout=args.get("timeout", 5),
+        )
+    if name == "tcp_check":
+        return net_mod.tcp_check(
+            host=args.get("host", ""),
+            port=args.get("port", 80),
+            timeout=args.get("timeout", 5),
+        )
+
+    # --- audio ---
+    if name == "tts_status":
+        return audio_mod.tts_status()
+    if name == "tts_speak":
+        return audio_mod.tts_speak(text=args.get("text", ""))
+    if name == "tts_stop":
+        return audio_mod.tts_stop()
+    if name == "audio_play":
+        return audio_mod.audio_play(path=args.get("path", ""))
+
+    # --- monitoring ---
+    if name == "event_list":
+        return mon_mod.event_list(
+            limit=args.get("limit", 50),
+            since_id=args.get("since_id", 0),
+        )
+    if name == "event_stats":
+        return mon_mod.event_stats()
+    if name == "ai_request_counter":
+        return mon_mod.ai_request_counter()
+
+    return {"ok": False, "success": False, "data": None,
+            "error": {"type": "UnknownTool", "message": f"Неизвестная функция: {name}"},
+            "error_message": f"Неизвестная функция: {name}"}
