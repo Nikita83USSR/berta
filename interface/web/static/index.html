@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#070d07" />
+  <title>BERTA — Autonomous Local Intelligence</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="boot-screen">
+    <pre id="ascii-logo">██████  ███████ ██████  ████████  █████
+██   ██ ██      ██   ██    ██    ██   ██
+██████  █████   ██████     ██    ███████
+██   ██ ██      ██   ██    ██    ██   ██
+██████  ███████ ██   ██    ██    ██   ██
+        AUTONOMOUS LOCAL INTELLIGENCE</pre>
+    <div class="boot-status">
+      <div>[ CORE ] INITIALIZING</div>
+      <div>[ BRAIN ] CONNECTING</div>
+      <div>[ MEMORY ] LOADING</div>
+      <div>[ WEB ] ONLINE</div>
+    </div>
+    <div class="boot-progress"><div class="boot-bar"></div></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <header id="header">
+      <div class="brand">
+        <div class="logo-mini">BERTA 0.2</div>
+        <div id="agent-state" class="agent-state idle">IDLE</div>
+      </div>
+
+      <div class="header-status">
+        <span id="conn-status" class="status-dot offline"></span>
+        <span id="conn-text">OFFLINE</span>
+        <button id="theme-toggle" class="icon-btn" title="Переключить тему">◐</button>
+        <button id="voice-toggle" class="voice-btn" title="Озвучка ответов">🔇 ГОЛОС</button>
+      </div>
+
+      <nav id="tabs" aria-label="Разделы">
+        <button class="tab active" data-panel="chat">ЧАТ</button>
+        <button class="tab" data-panel="brain">МОЗГ</button>
+        <button class="tab" data-panel="system">СИСТЕМА</button>
+        <button class="tab" data-panel="tasks">ЗАДАЧИ</button>
+        <button class="tab" data-panel="errors">ОШИБКИ</button>
+      </nav>
+    </header>
+
+    <audio id="tts-player" preload="auto"></audio>
+
+    <main id="content">
+      <section id="panel-chat" class="panel active">
+        <div class="panel-header chat-header">
+          <div>
+            <span class="panel-title">ДИАЛОГ</span>
+            <span class="panel-subtitle">локальное интеллектуальное ядро</span>
+          </div>
+          <span id="route-badge" class="route-badge">READY</span>
+        </div>
+        <div id="chat-messages" aria-live="polite"></div>
+        <div id="chat-input-area">
+          <textarea id="chat-input" placeholder="Напишите сообщение или команду…" rows="1"></textarea>
+          <button id="send-btn">ОТПРАВИТЬ</button>
+        </div>
+      </section>
+
+      <section id="panel-brain" class="panel">
+        <div class="panel-header">МОЗГ · события интеллектуального ядра</div>
+        <div id="brain-log" class="log-view"></div>
+      </section>
+
+      <section id="panel-system" class="panel">
+        <div class="panel-header">СИСТЕМА · локальные операции</div>
+        <div id="system-log" class="log-view"></div>
+      </section>
+
+      <section id="panel-tasks" class="panel">
+        <div class="panel-header">ЗАДАЧИ · фоновые процессы <button id="refresh-tasks" class="small-btn">ОБНОВИТЬ</button></div>
+        <div id="tasks-list"></div>
+      </section>
+
+      <section id="panel-errors" class="panel">
+        <div class="panel-header">ОШИБКИ</div>
+        <div id="errors-log" class="log-view"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

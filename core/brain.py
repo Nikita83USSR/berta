@@ -1,149 +1,91 @@
-import requests
 import uuid
+import requests
 import urllib3
 
-from config.settings import *
+from config.settings import (
+    GIGACHAT_API,
+    GIGACHAT_AUTH_KEY,
+    GIGACHAT_OAUTH,
+    GIGACHAT_SCOPE,
+    HTTP_TIMEOUT,
+    MODEL,
+)
 
 urllib3.disable_warnings()
 
 
 class BertaBrain:
-
     def __init__(self):
         self.token = None
-
+        self.token_expires_at = 0
 
     def get_token(self):
+        import time
 
-        if self.token:
+        if self.token and time.time() < self.token_expires_at - 60:
             return self.token
 
-
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json",
-            "RqUID": str(uuid.uuid4()),
-            "Authorization": "Basic " + GIGACHAT_AUTH_KEY
-        }
-
-
-        data = {
-            "scope": GIGACHAT_SCOPE
-        }
-
+        if not GIGACHAT_AUTH_KEY:
+            raise RuntimeError("GIGACHAT_AUTH_KEY не задан в .env")
 
         response = requests.post(
             GIGACHAT_OAUTH,
-            headers=headers,
-            data=data,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+                "RqUID": str(uuid.uuid4()),
+                "Authorization": "Basic " + GIGACHAT_AUTH_KEY,
+            },
+            data={"scope": GIGACHAT_SCOPE},
             verify=False,
-            timeout=30
+            timeout=30,
         )
-
-
         if response.status_code != 200:
-
             raise RuntimeError(
-                "Ошибка получения GigaChat токена:\n"
-                + response.text
+                f"Ошибка получения GigaChat токена: HTTP {response.status_code}"
             )
 
-
-        self.token = response.json()["access_token"]
-
+        data = response.json()
+        self.token = data["access_token"]
+        self.token_expires_at = int(data.get("expires_at") or (time.time() + 1800))
         return self.token
 
-
-
     def ask(self, messages, functions=None):
-
         token = self.get_token()
-
+        payload = {"model": MODEL, "messages": messages}
+        if functions:
+            payload["functions"] = functions
+            payload["function_call"] = "auto"
 
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "Authorization": "Bearer " + token
+            "Authorization": "Bearer " + token,
         }
-
-
-        payload = {
-
-            "model": MODEL,
-
-            "messages": messages
-        }
-
-
-        # ВАЖНО:
-        # Это возвращает старую логику БЕРТЫ
-        # GigaChat получает список инструментов
-
-        if functions:
-
-            payload["functions"] = functions
-
-            payload["function_call"] = "auto"
-
-
 
         response = requests.post(
-
             GIGACHAT_API + "/chat/completions",
-
             headers=headers,
-
             json=payload,
-
             verify=False,
-
-            timeout=120
+            timeout=HTTP_TIMEOUT,
         )
 
-
-
-        # если токен протух
-
         if response.status_code == 401:
-
             self.token = None
-
             token = self.get_token()
-
-            headers["Authorization"] = (
-                "Bearer " + token
-            )
-
-
+            headers["Authorization"] = "Bearer " + token
             response = requests.post(
-
                 GIGACHAT_API + "/chat/completions",
-
                 headers=headers,
-
                 json=payload,
-
                 verify=False,
-
-                timeout=120
+                timeout=HTTP_TIMEOUT,
             )
-
-
 
         if response.status_code != 200:
-
             raise RuntimeError(
-
-                "Ошибка GigaChat:\n"
-
-                + str(response.status_code)
-
-                + "\n"
-
-                + response.text[:5000]
-
+                f"Ошибка GigaChat: HTTP {response.status_code}: {response.text[:1500]}"
             )
-
-
 
         return response.json()

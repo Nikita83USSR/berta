@@ -1,102 +1,21 @@
+"""Инструменты BERTA: БД, файлы, приложения и управление Linux/desktop."""
+
 FUNCTIONS = [
-
-    {
-        "name": "read_client_balance",
-        "description": "Получает данные клиента из таблицы clients по его ID.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "client_id": {
-                    "type": "integer",
-                    "description": "ID клиента"
-                }
-            },
-            "required": [
-                "client_id"
-            ]
-        }
-    },
-
-
-    {
-        "name": "delete_client_by_name",
-        "description": "Удаляет клиентов с точно указанным именем из таблицы clients.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Точное имя клиента"
-                }
-            },
-            "required": [
-                "name"
-            ]
-        }
-    },
-
-
-    {
-        "name": "read_self_code",
-        "description": "Читает текущий исходный код BERTA.",
-        "parameters": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-
-
-    {
-        "name": "write_self_code",
-        "description": "Перезаписывает исходный код BERTA.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string",
-                    "description": "Полный новый исходный код"
-                }
-            },
-            "required": [
-                "code"
-            ]
-        }
-    },
-
-
-    {
-        "name": "read_file",
-        "description": "Читает содержимое файла и возвращает его содержимое.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "filename": {
-                    "type": "string",
-                    "description": "Путь к файлу"
-                }
-            },
-            "required": [
-                "filename"
-            ]
-        }
-    },
-
-
-    {
-        "name": "execute_system_command",
-        "description": "Выполняет системную команду. Опасные операции требуют подтверждения.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Системная команда"
-                }
-            },
-            "required": [
-                "command"
-            ]
-        }
-    }
-
+    {"name":"get_current_time","description":"Получить текущее локальное время. LEVEL 1.","parameters":{"type":"object","properties":{}}},
+    {"name":"get_current_date","description":"Получить текущую локальную дату. LEVEL 1.","parameters":{"type":"object","properties":{}}},
+    {"name":"get_system_status","description":"Получить состояние ОС, desktop environment, Python и BERTA. LEVEL 1.","parameters":{"type":"object","properties":{}}},
+    {"name":"list_clients","description":"Показать клиентов из MariaDB. LEVEL 1.","parameters":{"type":"object","properties":{"limit":{"type":"integer","description":"1..200"}}}},
+    {"name":"read_client_balance","description":"Получить данные клиента по ID. LEVEL 1.","parameters":{"type":"object","properties":{"client_id":{"type":"integer"}},"required":["client_id"]}},
+    {"name":"delete_client_by_name","description":"Удалить клиентов с точно указанным именем. Только по явной команде и с подтверждением. LEVEL 3.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}},
+    {"name":"read_file","description":"Прочитать текстовый локальный файл по указанному пути. LEVEL 1.","parameters":{"type":"object","properties":{"filename":{"type":"string"}},"required":["filename"]}},
+    {"name":"list_directory","description":"Показать содержимое папки. Умеет понимать ~, домашнюю папку и абсолютные пути. LEVEL 1.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Путь к папке, например ~/Downloads"},"include_hidden":{"type":"boolean"}},"required":["path"]}},
+    {"name":"find_files","description":"Найти файлы или папки по имени в указанном месте. Не сканировать весь диск без явного запроса. LEVEL 1.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Имя или часть имени"},"path":{"type":"string","description":"Корень поиска, по умолчанию ~"},"kind":{"type":"string","description":"file, dir или any"},"max_results":{"type":"integer","description":"1..100"}},"required":["query"]}},
+    {"name":"get_desktop_info","description":"Определить Linux desktop environment/session и доступные графические механизмы. LEVEL 1.","parameters":{"type":"object","properties":{}}},
+    {"name":"list_applications","description":"Найти установленные графические приложения по .desktop и PATH. LEVEL 1.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Необязательное название приложения"},"max_results":{"type":"integer"}}}},
+    {"name":"launch_application","description":"Запустить приложение по смыслу запроса, а не по жёсткому имени команды. Сначала ищет установленное приложение и учитывает текущий desktop. Например 'блокнот' на XFCE может быть Mousepad, а на GNOME — другое приложение. Не выдумывать команду. LEVEL 2.","parameters":{"type":"object","properties":{"application":{"type":"string","description":"Название или смысл: блокнот, браузер, файловый менеджер, терминал, калькулятор и т.д."},"args":{"type":"array","items":{"type":"string"},"description":"Необязательные аргументы запуска"}},"required":["application"]}},
+    {"name":"open_path","description":"Открыть файл или папку системным графическим обработчиком текущей ОС. LEVEL 2.","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}},
+    {"name":"list_processes","description":"Показать запущенные процессы, опционально отфильтрованные по имени. LEVEL 1.","parameters":{"type":"object","properties":{"query":{"type":"string"},"max_results":{"type":"integer"}}}},
+    {"name":"terminate_process","description":"Завершить процесс по PID или имени. Только по явной команде пользователя, с подтверждением. LEVEL 3.","parameters":{"type":"object","properties":{"pid":{"type":"integer"},"name":{"type":"string"}},}},
+    {"name":"execute_system_command","description":"Выполнить системную команду Linux только когда специализированного инструмента недостаточно. Опасные/разрушающие операции требуют подтверждения. Не придумывать desktop-specific команды. LEVEL 2-4.","parameters":{"type":"object","properties":{"command":{"type":"string"},"background":{"type":"string","description":"detached, wait или не указывать"}},"required":["command"]}},
+    {"name":"list_tasks","description":"Показать фоновые задачи BERTA. LEVEL 1.","parameters":{"type":"object","properties":{"only_active":{"type":"boolean"}}}},
 ]

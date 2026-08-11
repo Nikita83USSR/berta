@@ -1,8 +1,37 @@
+# Python environments
 venv/
+.venv/
+
+# Environment / secrets
 .env
+.env.*
+!.env.example
+
+# Python cache
 __pycache__/
+**/__pycache__/
 *.pyc
+*.pyo
+
+# Logs
 *.log
+logs/
+
+# Databases
 *.db
 *.sqlite
+*.sqlite3
+
+# Backups
 *.backup
+*_backup.py
+*_backup_*.py
+*.bak
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
